@@ -1,0 +1,2 @@
+efnpre_auc_score
+0.9582479483625

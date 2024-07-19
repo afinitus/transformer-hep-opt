@@ -1,3 +1,4 @@
+
 import os
 import numpy as np
 import h5py
@@ -18,22 +19,22 @@ def random_string():
     print("The generated random string : " + str(res))
     return str(res)
     
-main_dir_discrete='/pscratch/sd/n/nishank/humberto/FirstTime_topvsqcd_100const/'
+main_dir_discrete='/net/data_t2k/transformers-hep/JetClass/discretized/'
 
-sig_list=['top/discrete/samples_samples_nsamples1000000_trunc_5000.h5']
-bg_list=['qcd/discrete/samples_samples_nsamples1000000_trunc_5000.h5']
-num_epochs_list=[50]
+sig_list=['TTBar_train___10M_TTBar.h5']
+bg_list=['ZJetsToNuNu_train___10M_ZJetsToNuNu.h5']
+num_epochs_list=[5]
 dropout_list=[0.0]
 num_heads_list=[4]
 num_layers_list=[8]
 hidden_dim_list=[256]
 batch_size_list=[100]
-num_events_list=[1000,10000,100000,1000000]
+num_events_list=[10000]
 num_const_list=[100]
 lr_list=[.001]
 
-tag_of_train='top_vs_qcd_transformerdata_classifier_test_2'
-log_dir='/pscratch/sd/n/nishank/humberto/log_dir/'+tag_of_train
+tag_of_train='top_vs_qcd_jetclass_classifier_test_1'
+log_dir='/net/data_t2k/transformers-hep/JetClass/Classification/'+tag_of_train
 
 for sig in sig_list:
     for bg in bg_list:

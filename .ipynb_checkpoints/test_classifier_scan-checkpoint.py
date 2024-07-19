@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 def readauc(dir):
     
-    frame=pd.read_csv(dir+'/auc_optclass.txt')
+    frame=pd.read_csv(dir+'/auc.txt')
     
     auc_score=float(frame['auc_score'])
     
@@ -41,17 +41,18 @@ def PlotAUCwN(frame_all,model_dir):
     plt.xlabel('$N_{train}$')
     plt.ylabel('auc score')
     plt.xscale('log')
-    plt.savefig(mother_dir+'/auc_events_optclass.png')
+    plt.savefig(mother_dir+'/auc_events.png')
     
 
     return
     
 
-data_path_1='/pscratch/sd/n/nishank/humberto/FirstTime_topvsqcd_100const/top/discrete/samples_samples_nsamples200000_trunc_5000.h5'
-data_path_2='/pscratch/sd/n/nishank/humberto/FirstTime_topvsqcd_100const/qcd/discrete/samples__nsamples200000_trunc_5000.h5'
-mother_dir='/pscratch/sd/n/nishank/humberto/log_dir/'
+data_path_1='/net/data_t2k/transformers-hep/JetClass/discretized/TTBar_test___10M_TTBar.h5'
+data_path_2='/net/data_t2k/transformers-hep/JetClass/discretized/ZJetsToNuNu_test___10M_ZJetsToNuNu.h5'
+
+mother_dir='/net/data_t2k/transformers-hep/JetClass/Classification/'
 #tag='top_vs_qcd_jetclass_classifier_test_1_'
-num_events=200000
+num_events=100000
 
 model_dirs=os.listdir(mother_dir)
 
@@ -60,8 +61,7 @@ dict_auc={'num_events':[],'auc_score':[]}
 
 
 for model_dir in model_dirs:
-    if 'test_2' not in model_dir:
-        continue
+    
     try:
         command='python test_classifier.py --data_path_1 '+data_path_1+' --data_path_2 '+data_path_2+' --model_dir '+ mother_dir+model_dir+'  --num_events '+str(num_events)
         os.system(command)
