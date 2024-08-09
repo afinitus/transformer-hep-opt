@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Job name
-#SBATCH --job-name=deepsets_preprocessed
+#SBATCH --job-name=parT
 
 # choose the GPU queue
 #SBATCH --qos=regular
@@ -27,9 +27,10 @@
 # optional separate error output file
 # activate environment
 module load tensorflow
+pip install 'weaver-core>=0.4'
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 
 # run the training
 echo "Running training script..."
-python /pscratch/sd/n/nishank/humberto/transformer-hep/train_deepsetsatt.py -n 4
+python /pscratch/sd/n/nishank/humberto/transformer-hep/train_parT_vinniedata.py -n 4

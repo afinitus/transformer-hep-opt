@@ -8,11 +8,12 @@ roc_data_dir = 'roc_info'  # Update this path
 # List of NPZ files and their corresponding model names
 roc_files = [
     ('dsa_roc_data_test.npz', 'DSA'),
-    ('dsapre_roc_data_test.npz', 'DSA Pre'),
+    #('dsapre_roc_data_test.npz', 'DSA Pre'),
     ('efn_roc_data_test.npz', 'EFN'),
-    ('efnpre_roc_data_test.npz', 'EFN Pre'),
+    #('efnpre_roc_data_test.npz', 'EFN Pre'),
     ('pfn_roc_data_test.npz', 'PFN'),
-    ('pfnpre_roc_data_test.npz', 'PFN Pre'),
+    #('pfnpre_roc_data_test.npz', 'PFN Pre'),
+    ('particle_transformer_roc_data_test.npz', 'ParT')
 ]
 
 # Plot settings
@@ -28,7 +29,7 @@ for roc_file, model_name in roc_files:
     roc_auc = data['roc_auc']
 
     # Plot the ROC curve
-    plt.plot(tpr, 1/fpr, lw=lw, linestyle='--', label=f'{model_name} (AUC = {roc_auc:.5f})')
+    plt.plot(tpr, 1/fpr, lw=lw, linestyle='--', label=f'{model_name} (AUC = {roc_auc:.9f})')
 
 # Plot the reference line
 #plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')

@@ -3,13 +3,15 @@ import numpy as np
 import h5py
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset, TensorDataset
 import random
 import string
 from sklearn.metrics import roc_auc_score, roc_curve, auc
 import matplotlib.pyplot as plt
 from weaver.nn.model.ParticleTransformer import ParticleTransformer
 from weaver.utils.logger import _logger
+import torch.nn.functional as F
+import time
 
 def random_string():
     N = 7
@@ -29,125 +31,92 @@ def load_data(file, num_events, num_const):
     dat[dat == -1] = 0
     return dat
 
+def reconstruct_4_momenta(pt, eta, phi):
+    px = pt * np.cos(phi)
+    py = pt * np.sin(phi)
+    pz = pt * np.sinh(eta)
+    energy = np.sqrt(px**2 + py**2 + pz**2)  # Assuming massless particles
+    return np.stack((px, py, pz, energy), axis=-1)
+
 def normalize_data(data):
     pt = data[:, :, 0]
     eta = data[:, :, 1]
     phi = data[:, :, 2]
 
-    # Calculate total pt for normalization
     total_pt = np.sum(pt, axis=1, keepdims=True)
-    pt_normalized = np.log(pt / total_pt)  # log(pt/total pt)
+    total_pt[total_pt == 0] = 1e-9  # Prevent division by zero
 
-    # Calculate jet axis (average eta and phi of the jet)
+    pt_normalized = np.log(pt / total_pt)
+    pt_normalized[np.isneginf(pt_normalized)] = 0  # Replace -inf with 0
+
     eta_jet = np.sum(eta * pt, axis=1) / total_pt[:, 0]
     phi_jet = np.arctan2(np.sum(np.sin(phi) * pt, axis=1), np.sum(np.cos(phi) * pt, axis=1))
 
-    # Center the rapidities and azimuthal angles
     eta_centered = eta - eta_jet[:, np.newaxis]
     phi_centered = phi - phi_jet[:, np.newaxis]
-
-    # Ensure phi is within -pi to pi range
     phi_centered = (phi_centered + np.pi) % (2 * np.pi) - np.pi
 
-    data_normalized = np.stack((pt_normalized, eta_centered, phi_centered), axis=-1)
-    return data_normalized
+    features_normalized = np.stack((pt_normalized, eta_centered, phi_centered), axis=-1)
+    lorentz_vectors = reconstruct_4_momenta(pt, eta, phi)
+    return features_normalized, lorentz_vectors
 
-def preprocess_data(bg_file, sig_file, num_events, num_const):
-    bg = load_data(bg_file, num_events, num_const)
-    sig = load_data(sig_file, num_events, num_const)
+class ParticleTransformerDataset(Dataset):
+    def __init__(self, bg_file, sig_file, num_events, num_const):
+        bg = load_data(bg_file, num_events, num_const)
+        sig = load_data(sig_file, num_events, num_const)
 
-    print(f"Using bg {bg.shape} from {bg_file} and sig {sig.shape} from {sig_file}")
+        print(f"Using bg {bg.shape} from {bg_file} and sig {sig.shape} from {sig_file}")
 
-    dat = np.concatenate((bg, sig), 0)
-    lab = np.append(np.zeros(len(bg)), np.ones(len(sig)))
+        dat = np.concatenate((bg, sig), 0)
+        lab = np.append(np.zeros(len(bg)), np.ones(len(sig)))
 
-    dat_normalized = normalize_data(dat)
+        features_normalized, lorentz_vectors = normalize_data(dat)
 
-    idx = np.random.permutation(len(dat))
-    dat_normalized = dat_normalized[idx]
-    lab = lab[idx]
+        idx = np.random.permutation(len(dat))
+        features_normalized = features_normalized[idx]
+        lorentz_vectors = lorentz_vectors[idx]
+        lab = lab[idx]
 
-    train_size = int(0.9 * len(dat))
-    val_size = len(dat) - train_size
+        self.features = torch.tensor(features_normalized).float().permute(0, 2, 1)
+        self.lorentz_vectors = torch.tensor(lorentz_vectors).float().permute(0, 2, 1)
+        self.labels = torch.tensor(lab).long()
+        self.num_samples = len(lab)
 
-    train_data = (dat_normalized[:train_size], lab[:train_size])
-    val_data = (dat_normalized[train_size:], lab[train_size:])
+    def __len__(self):
+        return self.num_samples
 
-    return train_data, val_data
-
-def tensor_to_numpy(tensor_dataset):
-    data_list = []
-    label_list = []
-    for data, label in zip(*tensor_dataset):
-        data_list.append(data)
-        label_list.append(label)
-    data_array = np.array(data_list)
-    label_array = np.array(label_list)
-    return data_array, label_array
-
-# Parameters
-main_dir_discrete = '/pscratch/sd/n/nishank/humberto/FirstTime_topvsqcd_100const/'
-sig_list = ['top/discrete/samples_samples_nsamples1000000_trunc_5000.h5']
-bg_list = ['qcd/discrete/samples_samples_nsamples1000000_trunc_5000.h5']
-num_epochs_list = [1]
-dropout_list = [0.0]
-num_heads_list = [4]
-num_layers_list = [8]
-hidden_dim_list = [256]
-batch_size_list = [100]
-num_events_list = [1000000]
-num_const_list = [100]
-lr_list = [0.001]
-
-tag_of_train = 'top_vs_qcd_transformerdata_classifier_test_2'
-log_dir = '/pscratch/sd/n/nishank/humberto/log_dir/' + tag_of_train
-
-# Sample parameters for this run
-sig = sig_list[0]
-bg = bg_list[0]
-num_events = num_events_list[0]
-num_const = num_const_list[0]
-batch_size = batch_size_list[0]
-
-sig_path = main_dir_discrete + sig
-bg_path = main_dir_discrete + bg
-
-# Generate random suffix for this run
-name_sufix = random_string()
-
-# Load the data
-train_data, val_data = preprocess_data(bg_path, sig_path, num_events, num_const)
-
-train_data_np, train_labels_np = train_data
-val_data_np, val_labels_np = val_data
-
-# Print shapes to confirm
-print("Train data shape:", train_data_np.shape)
-print("Train labels shape:", train_labels_np.shape)
-print("Validation data shape:", val_data_np.shape)
-print("Validation labels shape:", val_labels_np.shape)
+    def __getitem__(self, idx):
+        num_cands = self.features.shape[2]
+        mask = torch.ones(1, num_cands, dtype=torch.bool)  # Ensure the mask is of shape (1, num_cands)
+        return {
+            "x": self.features[idx],
+            "v": self.lorentz_vectors[idx],
+            "mask": mask
+        }, self.labels[idx]
 
 class ParticleTransformerWrapper(torch.nn.Module):
     def __init__(self, **kwargs) -> None:
         super().__init__()
         self.mod = ParticleTransformer(**kwargs)
+        self.input_bn = torch.nn.BatchNorm1d(3)
 
     @torch.jit.ignore
     def no_weight_decay(self):
         return {'mod.cls_token', }
 
     def forward(self, points, features, lorentz_vectors, mask):
+        features = self.input_bn(features)
         return self.mod(features, v=lorentz_vectors, mask=mask)
 
 def get_model(data_config, **kwargs):
     cfg = dict(
-        input_dim=len(data_config['input_dicts']['pf_features']),
+        input_dim=3,
         num_classes=len(data_config['label_value']),
         pair_input_dim=4,
         use_pre_activation_pair=False,
         embed_dims=[128, 512, 128],
         pair_embed_dims=[64, 64, 64],
-        num_heads=8,
+        num_heads=10,
         num_layers=8,
         num_cls_layers=2,
         block_params=None,
@@ -179,121 +148,143 @@ data_config = {
 }
 
 print('Setting up Particle Transformer model...')
-model, model_info = get_model(data_config, input_dim=train_data_np.shape[-1], num_classes=2)
+model, model_info = get_model(data_config, input_dim=3, num_classes=2)
 
-criterion = torch.nn.BCELoss()
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print("CUDA available:", torch.cuda.is_available())
+model = torch.nn.DataParallel(model)
+model = model.to(device)
+
+criterion = torch.nn.BCEWithLogitsLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-# Prepare the data loaders
-train_dataset = TensorDataset(torch.tensor(train_data_np).float(), torch.tensor(train_labels_np).long())
-val_dataset = TensorDataset(torch.tensor(val_data_np).float(), torch.tensor(val_labels_np).long())
+bg_file = '/pscratch/sd/n/nishank/humberto/FirstTime_topvsqcd_100const/qcd/discrete/samples_samples_nsamples1000000_trunc_5000.h5'
+sig_file = '/pscratch/sd/n/nishank/humberto/FirstTime_topvsqcd_100const/top/discrete/samples_samples_nsamples1000000_trunc_5000.h5'
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+train_dataset = ParticleTransformerDataset(bg_file, sig_file, num_events=1000000, num_const=100)
+train_loader = DataLoader(train_dataset, batch_size=100, shuffle=True)
 
-# Training loop
 num_epochs = 128
 model.train()
+
+def one_hot(labels, num_classes):
+    return F.one_hot(labels, num_classes=num_classes).float()
 
 for epoch in range(num_epochs):
     running_loss = 0.0
     correct = 0
     total = 0
-    for inputs, labels in train_loader:
+    epoch_start_time = time.time()
+    for batch_idx, batch in enumerate(train_loader):
+        #if batch_idx == 200:
+        #    break
+        batch_start_time = time.time()
+        inputs, labels = batch
+        features = inputs["x"].to(device)
+        lorentz_vectors = inputs["v"].to(device)
+        mask = inputs["mask"].to(device)
+        labels = labels.to(device)
+        
         optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, labels.float())
+        outputs = model(features, features, lorentz_vectors, mask)
+        if torch.isnan(outputs).any():
+            print(f'NaN detected in outputs at step {batch_idx}')
+            continue
+        labels_one_hot = one_hot(labels, num_classes=2)
+        loss = criterion(outputs, labels_one_hot)
+        if torch.isnan(loss).any():
+            print(f'NaN detected in loss at step {batch_idx}')
+            continue
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
-        
-        # Calculate accuracy
+
         predicted = (outputs > 0.5).float()
         total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+        correct += (predicted.argmax(dim=1) == labels).sum().item()
+        
+        if batch_idx % 10 == 0:
+            print(f'Epoch [{epoch+1}/{num_epochs}], Step [{batch_idx+1}/{len(train_loader)}], Loss: {loss.item():.4f}')
 
-    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(train_loader):.4f}, Accuracy: {100 * correct / total:.2f}%')
+    epoch_end_time = time.time()
+    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(train_loader):.4f}, Accuracy: {100 * correct / total:.2f}%, Time: {epoch_end_time - epoch_start_time:.2f}s')
 
-# Save the trained model
 torch.save(model.state_dict(), 'particle_transformer_checkpoints/model_particle_transformer_best_ckpt.pth')
 
-#########################################################################################################################
+# Testing phase
+print(f"Loading test set")
+data_path_1 = '/pscratch/sd/n/nishank/humberto/FirstTime_topvsqcd_100const/top/discrete/samples_samples_nsamples200000_trunc_5000.h5'
+data_path_2 = '/pscratch/sd/n/nishank/humberto/FirstTime_topvsqcd_100const/qcd/discrete/samples__nsamples200000_trunc_5000.h5'
 
-def get_test_data(bg_file, sig_file, num_events, num_const):
-    bg = load_data(bg_file, num_events, num_const)
-    sig = load_data(sig_file, num_events, num_const)
+test_dataset = ParticleTransformerDataset(data_path_2, data_path_1, num_events=200000, num_const=100)
+test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
 
-    print(f"Using bg {bg.shape} from {bg_file} and sig {sig.shape} from {sig_file}")
+model.eval()
+model.load_state_dict(torch.load('particle_transformer_checkpoints/model_particle_transformer_best_ckpt.pth'))
 
-    dat = np.concatenate((bg, sig), 0)
-    lab = np.append(np.zeros(len(bg)), np.ones(len(sig)))
+predictions = []
+test_labels = []
 
-    dat_normalized = normalize_data(dat)
+with torch.no_grad():
+    for batch_idx, batch in enumerate(test_loader):
+        inputs, labels = batch
+        features = inputs["x"].to(device)
+        lorentz_vectors = inputs["v"].to(device)
+        mask = inputs["mask"].to(device)
+        
+        outputs = model(features, features, lorentz_vectors, mask)
+        if torch.isnan(outputs).any():
+            print(f'NaN detected in outputs at step {batch_idx}')
+            continue
 
-    idx = np.random.permutation(len(dat))
-    dat_normalized = dat_normalized[idx]
-    lab = lab[idx]
+        # Assuming outputs are logits for two classes, take the second column for the positive class prediction
+        preds = torch.sigmoid(outputs)[:, 1].cpu().numpy()
 
-    test_data = (dat_normalized, lab)
-    return test_data
+        predictions.extend(preds)
+        test_labels.extend(labels.cpu().numpy())
+        
+        if batch_idx % 10 == 0:
+            print(f'Step [{batch_idx+1}/{len(test_loader)}]')
+
+predictions = np.array(predictions)
+test_labels = np.array(test_labels)
+
+# Check shapes before calculating AUC score
+print(f'Predictions shape: {predictions.shape}')
+print(f'Test labels shape: {test_labels.shape}')
+
+# Ensure predictions and test_labels have consistent lengths
+if len(predictions) != len(test_labels):
+    raise ValueError(f"Inconsistent number of samples: predictions={len(predictions)}, test_labels={len(test_labels)}")
+
+auc_score = roc_auc_score(test_labels, predictions)
 
 def plot_roc_curve(y_true, y_score, model_dir):
-    # Compute ROC curve and ROC area for each class
     fpr, tpr, _ = roc_curve(y_true, y_score)
     roc_auc = auc(fpr, tpr)
 
-    # Plot ROC curve
     plt.figure()
     lw = 2
-    plt.plot(fpr, tpr, color='darkorange', lw=lw, label='ROC curve (AUC = %0.5f)' % roc_auc)
-    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+    plt.plot(tpr, 1/fpr, color='darkorange', lw=lw, label='ROC curve (AUC = %0.5f)' % roc_auc)
+    #plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
 
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
     plt.yscale('log')
     plt.title('ROC Curve')
-    plt.legend(loc="lower right")
-    plt.savefig(model_dir + '/particle_transformer_roc_test.png')
+    plt.legend(loc='lower right')
+    plt.savefig(os.path.join(model_dir, 'particle_transformer_roc_test.png'))
     return fpr, tpr, roc_auc
 
 def save_roc_data(fpr, tpr, roc_auc, model_dir):
-    np.savez(os.path.join(model_dir, 'particle_transformer_roc_data_test.npz'),
-             fpr=fpr, tpr=tpr, roc_auc=roc_auc)
+    np.savez(os.path.join(model_dir, 'particle_transformer_roc_data_test.npz'), fpr=fpr, tpr=tpr, roc_auc=roc_auc)
 
 def save_auc_score(model_dir, auc_score):
-    with open(model_dir + '/particle_transformer_auc.txt', 'w') as file:
+    with open(os.path.join(model_dir, 'particle_transformer_auc.txt'), 'w') as file:
         file.write(f'particle_transformer_auc_score\n{auc_score}\n')
 
-
 model_dir = 'roc_info'
-data_path_1 = '/pscratch/sd/n/nishank/humberto/FirstTime_topvsqcd_100const/top/discrete/samples_samples_nsamples200000_trunc_5000.h5'
-data_path_2 = '/pscratch/sd/n/nishank/humberto/FirstTime_topvsqcd_100const/qcd/discrete/samples__nsamples200000_trunc_5000.h5'
-num_const = 100
-
-print(f"Loading test set")
-test_data = get_test_data(data_path_2, data_path_1, 200000, num_const)
-test_data_np, test_labels_np = test_data
-
-print("Test data shape:", test_data_np.shape)
-print("Test labels shape:", test_labels_np.shape)
-
-# Load the trained model
-model.eval()
-model.load_state_dict(torch.load('particle_transformer_checkpoints/model_particle_transformer_best_ckpt.pth'))
-
-# Evaluate model
-with torch.no_grad():
-    test_loader = DataLoader(TensorDataset(torch.tensor(test_data_np).float(), torch.tensor(test_labels_np).long()), batch_size=batch_size, shuffle=False)
-    predictions = []
-    for inputs, _ in test_loader:
-        outputs = model(inputs)
-        predictions.extend(outputs.cpu().numpy())
-
-predictions = np.array(predictions).flatten()
-auc_score = roc_auc_score(test_labels_np, predictions)
-
-# Plot and save ROC curve
-fpr, tpr, roc_auc = plot_roc_curve(test_labels_np, predictions, model_dir)
+fpr, tpr, roc_auc = plot_roc_curve(test_labels, predictions, model_dir)
 save_roc_data(fpr, tpr, roc_auc, model_dir)
 save_auc_score(model_dir, auc_score)
 
