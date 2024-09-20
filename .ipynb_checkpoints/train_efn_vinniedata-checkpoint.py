@@ -25,20 +25,26 @@ def get_data(file_path):
     data = data[idx]
     pid = pid[idx]
     
-    # Extract features
-    zi = np.exp(data[:, :, 3])  # Convert log(pt) back to pt
-    p_hat_i = data[:, :, 0:2]   # pseudorapidity and phi
+    # **zi**: Normalized transverse momentum (pT_part / pT_jet)
+    # `points[:,:,2]` is log(1 - pT_part / pT_jet), so we compute 1 - exp(points[:,:,2])
+    zi = 1.0 - np.exp(data[:, :, 2])  # This gives pT_part / pT_jet
+    
+    # **p_hat_i**: Relative pseudorapidity and relative phi
+    # Relative pseudorapidity: data[:, :, 0] (difference in rapidity between particle and jet)
+    # Relative phi: data[:, :, 1] (difference in phi between particle and jet)
+    p_hat_i = data[:, :, [0, 1]]  # Relative pseudorapidity and relative phi
     
     # Normalize zi (optional, but often helpful)
-    zi = zi / np.sum(zi, axis=1, keepdims=True)
+    #zi = zi / np.sum(zi, axis=1, keepdims=True)
     
     return zi, p_hat_i, pid
+
 # Parameters
 train_file = '/global/cfs/cdirs/m3246/vmikuni/for_nishank/Aachen/train_ttbar.h5'
 val_file = '/global/cfs/cdirs/m3246/vmikuni/for_nishank/Aachen/val_ttbar.h5'
 test_file = '/global/cfs/cdirs/m3246/vmikuni/for_nishank/Aachen/test_ttbar.h5'
 
-num_epochs = 128
+num_epochs = 1
 batch_size = 100
 log_dir = '/pscratch/sd/n/nishank/humberto/log_dir/top_vs_qcd_transformerdata_classifier_test_2'
 

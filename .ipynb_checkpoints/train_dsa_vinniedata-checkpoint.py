@@ -28,36 +28,84 @@ def preprocess_data(file_path):
     
     return data, labels
 
-def DeepSetsAttClass(num_feat, num_heads=4, num_transformer=4, projection_dim=32):
-    inputs = Input((None, num_feat))
-    masked_inputs = layers.Masking(mask_value=0.0, name='Mask')(inputs)
+import tensorflow as tf
+from tensorflow.keras import layers, models
 
-    masked_features = layers.TimeDistributed(layers.Dense(projection_dim, activation=None))(masked_inputs)
+class ApplyMask(layers.Layer):
+    def call(self, inputs, mask=None):
+        x, m = inputs
+        return x * tf.cast(m, x.dtype)[:, :, tf.newaxis]
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0]
+
+import tensorflow as tf
+from tensorflow.keras import layers, models
+
+class CreateMask(layers.Layer):
+    def call(self, inputs):
+        return tf.cast(tf.not_equal(tf.reduce_sum(inputs, axis=-1), 0), tf.float32)
+
+class ApplyMask(layers.Layer):
+    def call(self, inputs):
+        x, mask = inputs
+        return x * mask[:, :, tf.newaxis]
+
+class MaskedGlobalAveragePooling(layers.Layer):
+    def call(self, inputs):
+        x, mask = inputs
+        return tf.reduce_sum(x * mask[:, :, tf.newaxis], axis=1) / tf.reduce_sum(mask, axis=1)[:, tf.newaxis]
+
+def DeepSetsAttClass(num_feat, num_heads=4, num_transformer=4, projection_dim=32):
+    inputs = layers.Input((None, num_feat))
+    print(f"Input shape: {inputs.shape}")
+    
+    mask = CreateMask()(inputs)
+    print(f"Mask shape: {mask.shape}")
+    
+    masked_features = layers.TimeDistributed(layers.Dense(projection_dim, activation=None))(inputs)
+    masked_features = ApplyMask()([masked_features, mask])
+    print(f"Masked features shape: {masked_features.shape}")
     
     tdd = layers.TimeDistributed(layers.Dense(projection_dim, activation=None))(masked_features)
     tdd = layers.TimeDistributed(layers.LeakyReLU(alpha=0.01))(tdd)
     encoded_patches = layers.TimeDistributed(layers.Dense(projection_dim))(tdd)
-
-    for _ in range(num_transformer):
+    encoded_patches = ApplyMask()([encoded_patches, mask])
+    print(f"Encoded patches shape: {encoded_patches.shape}")
+    
+    for i in range(num_transformer):
+        print(f"Transformer layer {i+1}")
         x1 = layers.LayerNormalization(epsilon=1e-6)(encoded_patches)
-        attention_output = layers.MultiHeadAttention(num_heads=num_heads, key_dim=projection_dim//num_heads, dropout=0.1)(x1, x1)
+        attention_output = layers.MultiHeadAttention(
+            num_heads=num_heads, 
+            key_dim=projection_dim//num_heads, 
+            dropout=0.1
+        )(x1, x1, attention_mask=mask[:, tf.newaxis, tf.newaxis, :])
+        print(f"  Attention output shape: {attention_output.shape}")
         x2 = layers.Add()([attention_output, encoded_patches])
-
         x3 = layers.LayerNormalization(epsilon=1e-6)(x2)                
         x3 = layers.Dense(4*projection_dim, activation="gelu")(x3)
         x3 = layers.Dense(projection_dim, activation="gelu")(x3)
         encoded_patches = layers.Add()([x3, x2])
-
+        encoded_patches = ApplyMask()([encoded_patches, mask])
+        print(f"  Encoded patches shape after transformer: {encoded_patches.shape}")
+    
     representation = layers.LayerNormalization(epsilon=1e-6)(encoded_patches)
-    pooled = layers.GlobalAvgPool1D()(representation)
+    pooled = MaskedGlobalAveragePooling()([representation, mask])
+    print(f"Pooled shape: {pooled.shape}")
+    
     representation = layers.Dense(2*projection_dim, activation=None)(pooled)
     representation = layers.Dropout(0.1)(representation)
     representation = layers.LeakyReLU(alpha=0.01)(representation)
+    print(f"Final representation shape: {representation.shape}")
     
     outputs = layers.Dense(1, activation='sigmoid')(representation)
+    print(f"Output shape: {outputs.shape}")
     
     model = models.Model(inputs=inputs, outputs=outputs)
     return model
+
+
 
 # Parameters
 train_file = '/global/cfs/cdirs/m3246/vmikuni/for_nishank/Aachen/train_ttbar.h5'
@@ -135,16 +183,16 @@ def plot_roc_curve(y_true, y_score, model_dir):
     plt.yscale('log')
     plt.title('ROC Curve')
     plt.legend(loc="lower right")
-    plt.savefig(os.path.join(model_dir, 'dsapre_roc_test.png'))
+    plt.savefig(os.path.join(model_dir, 'dsa_roc_test.png'))
     return fpr, tpr, roc_auc
 
 def save_roc_data(fpr, tpr, roc_auc, model_dir):
-    np.savez(os.path.join(model_dir, 'dsapre_roc_data_test.npz'),
+    np.savez(os.path.join(model_dir, 'dsa_roc_data_test.npz'),
              fpr=fpr, tpr=tpr, roc_auc=roc_auc)
 
 def save_auc_score(model_dir, auc_score):
     with open(os.path.join(model_dir, 'dsapre_auc.txt'), 'w') as file:
-        file.write(f'dsapre_auc_score\n{auc_score}\n')
+        file.write(f'dsa_auc_score\n{auc_score}\n')
 
 model_dir = 'roc_info'
 os.makedirs(model_dir, exist_ok=True)

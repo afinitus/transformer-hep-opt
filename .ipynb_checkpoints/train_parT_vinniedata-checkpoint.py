@@ -116,7 +116,7 @@ test_file = '/global/cfs/cdirs/m3246/vmikuni/for_nishank/Aachen/test_ttbar.h5'
 train_dataset = ParticleTransformerDataset(train_file)
 train_loader = DataLoader(train_dataset, batch_size=100, shuffle=True)
 
-num_epochs = 128
+num_epochs = 50
 model.train()
 
 def one_hot(labels, num_classes):

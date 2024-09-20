@@ -7,11 +7,11 @@ roc_data_dir = 'roc_info'  # Update this path
 
 # List of NPZ files and their corresponding model names
 roc_files = [
-    ('dsa_roc_data_test.npz', 'DSA'),
-    #('dsapre_roc_data_test.npz', 'DSA Pre'),
-    ('efn_roc_data_test.npz', 'EFN'),
+    #('dsa_roc_data_test.npz', 'DSA'),
+    ('dsa_roc_data_test.npz', 'Deep Sets with Attention'),
+    ('efn_roc_data_test.npz', 'Energy Flow Network'),
     #('efnpre_roc_data_test.npz', 'EFN Pre'),
-    ('pfn_roc_data_test.npz', 'PFN'),
+    ('pfn_roc_data_test.npz', 'Particle Flow Network'),
     #('pfnpre_roc_data_test.npz', 'PFN Pre'),
     ('particle_transformer_roc_data_test.npz', 'ParT')
 ]
@@ -36,11 +36,12 @@ for roc_file, model_name in roc_files:
 
 # Plot settings
 #plt.xscale('log')
+plt.grid(True, which='both', linestyle='--', linewidth=0.5)
 plt.xlim([0.0, 1.0])
 #plt.ylim([0.0, 1.05])
 plt.yscale('log')
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
+plt.xlabel(r'$\text{TPR}$', fontsize=12)
+plt.ylabel(r'$\frac{1}{\text{FPR}}$', fontsize=16)
 plt.title('ROC Curve Comparison of Different Models')
 plt.legend(loc="lower right")
 

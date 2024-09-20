@@ -1,13 +1,9 @@
 import os
 import numpy as np
 import h5py
-import pandas as pd
-import torch
-from torch.utils.data import DataLoader, TensorDataset
 import random
 import string
 from energyflow.archs import PFN
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.metrics import roc_auc_score, roc_curve, auc
 import matplotlib.pyplot as plt
 
@@ -29,14 +25,30 @@ def get_data(file_path):
     data = data[idx]
     pid = pid[idx]
     
-    return data, pid
+    # **Extract the three features**
+    # Relative pseudorapidity: data[:, :, 0]
+    # Relative phi: data[:, :, 1]
+    # Normalized transverse momentum (pT_part / pT_jet): 1 - exp(data[:, :, 2])
+    features = np.stack([
+        data[:, :, 0],  # Relative pseudorapidity
+        data[:, :, 1],  # Relative phi
+        1.0 - np.exp(data[:, :, 2])  # Normalized transverse momentum (pT_part / pT_jet)
+    ], axis=-1)
+    
+    return features, pid
+
+def check_for_nan_inf(data, name=""):
+    if np.isnan(data).any():
+        print(f"Warning: NaN values detected in {name}.")
+    if np.isinf(data).any():
+        print(f"Warning: Inf values detected in {name}.")
 
 # Parameters
 train_file = '/global/cfs/cdirs/m3246/vmikuni/for_nishank/Aachen/train_ttbar.h5'
 val_file = '/global/cfs/cdirs/m3246/vmikuni/for_nishank/Aachen/val_ttbar.h5'
 test_file = '/global/cfs/cdirs/m3246/vmikuni/for_nishank/Aachen/test_ttbar.h5'
 
-num_epochs = 6
+num_epochs = 1
 batch_size = 100
 log_dir = '/pscratch/sd/n/nishank/humberto/log_dir/top_vs_qcd_transformerdata_classifier_test_2'
 
@@ -46,8 +58,14 @@ name_suffix = random_string()
 # Load the data
 print('Loading training data...')
 train_data, train_labels = get_data(train_file)
+check_for_nan_inf(train_data, "training data")
+check_for_nan_inf(train_labels, "training labels")
+
+# Load and check the validation data
 print('Loading validation data...')
 val_data, val_labels = get_data(val_file)
+check_for_nan_inf(val_data, "validation data")
+check_for_nan_inf(val_labels, "validation labels")
 
 # Print shapes to confirm
 print("Train data shape:", train_data.shape)
@@ -56,7 +74,7 @@ print("Validation data shape:", val_data.shape)
 print("Validation labels shape:", val_labels.shape)
 
 print('Setting up PFN model...')
-input_dim = train_data.shape[-1]  # Should be 7
+input_dim = train_data.shape[-1]  # Should now be 3 (pseudorapidity, phi, pT_part/pT_jet)
 
 # Creating the PFN model with hyperparameters
 model = PFN(

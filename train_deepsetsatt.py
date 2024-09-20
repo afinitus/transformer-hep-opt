@@ -160,6 +160,8 @@ def DeepSetsAttClass(num_feat, num_heads=4, num_transformer=4, projection_dim=32
     
     model = models.Model(inputs=inputs, outputs=outputs)
     return model
+
+
 print('Setting up Model')
 num_feat = 3
 model = DeepSetsAttClass(num_feat=num_feat)

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Job name
-#SBATCH --job-name=parT
+#SBATCH --job-name=pfn
 
 # choose the GPU queue
 #SBATCH --qos=regular
@@ -33,4 +33,4 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # run the training
 echo "Running training script..."
-python /pscratch/sd/n/nishank/humberto/transformer-hep/train_parT_vinniedata.py -n 4
+python /pscratch/sd/n/nishank/humberto/transformer-hep/train_pfn_vinniedata.py -n 4
